@@ -1,0 +1,107 @@
+---
+title: "Modeling Hospital Stay Duration and Readmission Risk in Diabetic Patients Using Machine Learning"
+author: |
+  <div style="text-align: left;">
+    <strong>WQD7004 Programming in Data Science</strong><br>
+    OCC 1 & 4<br>
+    <br>
+    <strong>Group 6:</strong><br>
+    Madina Suraya Binti Zharin<br>
+    Aina Nazeeefa Binti Muhammad Afifi<br>
+    Nurul Afzan Binti Nasir<br>
+    Atikah Binti Ahmad Nazmi<br>
+    Nur Aina Izureen Binti Mohd Amir Izwan
+  </div>
+date: "2025-05-20"
+output: 
+  rmdformats::readthedown:
+---
+
+```{=html}
+<style>
+h1.title {
+  text-align: center;
+}
+h4.author {
+  text-align: center;
+}
+h4.subtitle {
+  text-align: center;
+}
+h4.date {
+  text-align: center;
+} 
+</style>
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Hospital readmissions and prolonged lengths of stay are critical challenges in managing diabetes-related hospital care. Frequent readmissions can indicate poor disease management, while extend hospitalizations strain healthcare resources and increase patient risk. Leveraging machine learning (ML) to predict these outcomes can help identify high-risk patients early, guide interventions, and improve care planning. 
+
+This project focuses on predicting two important outcomes among diabetic patients: 
+
+1. The **duration of hospital stays**, a continuous variable representing healthcare utilization. 
+
+2. The **prediction of readmission**, a classification problem that reflects care quality. 
+
+By analyzing clinical, demographic, and treatment-related features, the project applies predictive modeling and interpretability techniques to uncover key drivers of these outcomes and enhance decision support in diabetes care. 
+
+### Dataset Details
+
+|  |  |
+|-----------------------|-------------------------------------------------|
+| **Link** | <https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008> |
+| **Title** | Diabetes 130-US Hospitals for Years 1999-2008 |
+| **Purpose of Dataset** | The dataset is designed to analyze hospital readmission patterns of diabetic patients, particularly in determining the likelihood of a patient being readmitted within 30 days of discharge after hospitalization due to diabetes-related health issues. |
+| **Dimension** | 101767 rows, 50 columns |
+| **Content** | 10 years of clinical care (1999–2008) across 130 U.S. hospitals | **Structure** |• Rows:`101,766` patient encounters <br>• Columns: `101,766` patient encounters <br>• Column Types:`13` numeric, `37` categorical <br>• Missing Values: Yes (e.g., `weight`, `payer_code`, etc.) |
+| **Summary** | • **Class Distribution (readmitted)**:<br>&nbsp;&nbsp;&nbsp;&nbsp;• "NO": 54,864 (most frequent)<br>&nbsp;&nbsp;&nbsp;&nbsp;• ">30" and "<30": Remaining <br>• **Race**: 76,099 patients are "Caucasian" (dominant group)<br>• **Age Groups**: 10 discrete ranges like [70-80), [60-70), etc.<br>• **Missing values**: Most entries have "?" for weight, payer_code, and medical_specialty — indicating missing or unknown data |
+
+# Research Questions
+
+1. What features are most important in predicting readmission and length of stay, as identified by machine learning interpretability methods? 
+
+2. ⁠Which machine learning model most accurately predicts the length of hospital stay after diabetic patient readmission? 
+
+3. ⁠How accurately can machine learning models classify diabetic patients into readmission categories? 
+
+# Research Objectives
+
+1. To apply feature importance and interpretability techniques to identify the most influential factors associated with diabetic readmissions. 
+
+2. ⁠To develop and evaluate machine learning models for predicting the length of stay and hospital readmission among diabetic patients. 
+
+3. ⁠To build and assess classification model to predict the readmission risk using structured health data. 
+
+# Implementation
+
+```{r echo=FALSE, results='asis'}
+knitr::asis_output(knitr::knit_child("01_Cleaning.Rmd", quiet = TRUE))
+```
+
+```{r echo=FALSE, results='asis'}
+knitr::asis_output(knitr::knit_child("02-1_EDA.Rmd", quiet = TRUE))
+```
+
+```{r echo=FALSE, results='asis'}
+knitr::asis_output(knitr::knit_child("02-2_EDA.Rmd", quiet = TRUE))
+```
+
+# Prediction & Result
+
+```{r echo=FALSE, results='asis'}
+knitr::asis_output(knitr::knit_child("03_Regression.Rmd", quiet = TRUE))
+```
+
+```{r echo=FALSE, results='asis'}
+knitr::asis_output(knitr::knit_child("04_Classification.Rmd", quiet = TRUE))
+```
+
+# Conclusion
+```{r echo=FALSE, results='asis'}
+knitr::asis_output(knitr::knit_child("05_Conclusion.Rmd", quiet = TRUE))
+```

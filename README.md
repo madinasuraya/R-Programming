@@ -8,3 +8,5 @@ This project focuses on predicting two important outcomes among diabetic patient
 2. The prediction of readmission, a classification problem that reflects care quality.
 
 By analyzing clinical, demographic, and treatment-related features, the project applies predictive modeling and interpretability techniques to uncover key drivers of these outcomes and enhance decision support in diabetes care.
+
+[Report in RPubs](https://rpubs.com/madinasuraya/Group6-HospitalStayReadmission)

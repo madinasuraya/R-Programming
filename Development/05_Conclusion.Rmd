@@ -1,0 +1,8 @@
+The analysis revealed strong correlations between medical encounter counts and variables such as diagnoses, medications, and hospital stay duration, confirming that patients with more complex needs tend to receive more treatments and stay longer. Regression modeling using tuned XGBoost provided a reasonable prediction of hospital stay duration, suggesting its potential use in hospital resource planning despite room for improvement with more detailed clinical data. However, classification models for predicting readmission performed poorly, particularly for early readmissions (<30 days), due to class imbalance and limited predictive power in the features used. While overall accuracy appeared moderate, low sensitivity and F1 scores highlighted the models’ inability to effectively detect critical readmission cases, underscoring the need for better feature engineering and evaluation metrics tailored to imbalanced healthcare data.
+
+
+
+
+
+
+

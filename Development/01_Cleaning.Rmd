@@ -1,0 +1,202 @@
+## Data Cleaning
+
+### Accessing data source
+
+Before performing data analysis in R, we import a library called `dplyr`, which is a package for data manipulation and transformation. Other than that, we also import `knitr` library to perform dynamic report generation. `ggplot2` on the other hand will help in customizing data visualization. In addition, the `corrplot` package is used to visualize correlation matrices, allowing us to identify relationships between numeric variables effectively. The `tidyr` package supports data tidying tasks such as reshaping data,handling missing values, ensuring our dataset is structured appropriately for analysis.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(knitr)
+library(ggplot2)
+```
+
+Next, read **diabetic_data.csv** as the source file by directly inserting the file name with its directory. To improve performance, we use `head(,5)` to display the first 5 rows. We will consider "?" as string while reading the data.
+
+```{r echo=TRUE}
+df <- read.csv("diabetic_data.csv",na.strings = "?")
+kable(head(df,5), align = "l")
+```
+
+As a reference to some of the columns with *id*, we can refer to **IDS_mapping.csv** file.
+
+```{r echo=TRUE}
+# read 'IDS_Mapping.csv'
+# df <- read.csv(file.choose(),na.strings = "?")
+id_reference <- read.csv("IDS_mapping.csv")
+#id_reference
+kable(id_reference, align = "l")
+```
+
+### Understanding raw data
+
+The dataset are likely related to **diabetics patient records**. Data can be understand by identifying number of rows, dimension, and structure.
+
+```{r echo=TRUE}
+nrow(df)
+```
+
+```{r echo=TRUE}
+dim(df)
+```
+
+Generally, there are **101766 observations** and **50 variables**. The observation covers demographic, diagnostic, and treatment information.
+
+```{r echo=TRUE}
+str(df)
+```
+From the structure above, we can observed that most of the data are categorical with lots of missing values labelled as "?".
+
+After exploring about some fields with `id` (discharge_disposition_id, admission_source_id, admission_type_id), we observe that there are some `id` that contains "Null", "Not Mapped", "Not Available", and "Unknown/Invalid" category. To make it standardized, we change the 'id' into **0**, with "Unknown" as it description.
+
+```{r echo=TRUE}
+df <- df %>%
+  mutate(
+    discharge_disposition_id = case_when(
+      discharge_disposition_id %in% c(18, 25, 26) ~ 0,
+      TRUE ~ discharge_disposition_id
+    ),
+    admission_source_id = case_when(
+      admission_source_id %in% c(9, 15, 16, 19, 20) ~ 0,
+      TRUE ~ admission_source_id
+    ),
+    admission_type_id = case_when(
+      admission_type_id %in% c(5, 6, 8) ~ 0,
+      TRUE ~ admission_type_id
+    )
+  )
+```
+Below are the list of unique id which contains **0** `id` as it category.
+```{r echo=TRUE}
+list(
+  admission_source_id = sort(unique(df$admission_source_id)),
+  admission_type_id = sort(unique(df$admission_type_id)),
+  discharge_disposition_id = sort(unique(df$discharge_disposition_id))
+)
+```
+
+### Remove duplicates
+
+Duplicates are removed to ensure data accuracy and reliability.
+
+```{r echo=TRUE}
+df <-  df[!duplicated(df), ]
+nrow(df)
+```
+
+We can observe that there are no duplicated rows as the number of row before and after are tally.
+
+Since this dataset is about patient hospital admission, *encounter_id* should be unique. 
+
+```{r echo=TRUE}
+pk <- (unique(df$encounter_id))
+length(pk)
+length(!is.na(pk))
+```
+As we can see, *encounter_id* is unique and contains no missing value. Thus, it can act as a primary key in this dataset.
+
+### Handling missing values
+
+Handle missing value is a critical step in data cleaning to ensure the data are ready for analysis. Ignoring this can lead to inaccurate analysis and biased model.
+
+Firstly, we get the total number of missing values and missing percentage for each column. 
+
+```{r echo=TRUE}
+missing_summary <- data.frame(
+  missing_count = sapply(df, function(x) sum(is.na(x))),
+  missing_percent = paste(round(sapply(df, function(x) mean(is.na(x)) * 100),2),'%')
+)
+kable(missing_summary, align = "l")
+```
+Based on the table above, *weight* have the highest missing value which is 97%, followed by *prayer_code* and *medical_speciality* with 40% and 49% respectively, *race* with less than 2%, and lastly *diag_1, diag_2, and diag_3* with almost 0%. Column with almost 100% missing value will be removed while applying imputation to the column with less than 50% missing values.
+
+Since there are too much missing value in *weight* column, the column will be removed as it is no longer useful for analysis.
+```{r echo=TRUE}
+df <- df %>% select(-weight)
+dim(df)
+```
+As we can see, *weight* column has been removed since the variable decrease by 1.
+
+Next, missing values in *payer_code* and *medical_speciality* column will be imputed to "Unknown" category.
+
+```{r echo=TRUE}
+df$payer_code[is.na(df$payer_code)] <- "Unknown" 
+unique(df$payer_code)
+```
+
+```{r echo=TRUE}
+df$medical_specialty[is.na(df$medical_specialty)] <- "Unknown" 
+unique(df$medical_specialty)
+```
+The unique categories are listed above with "Unknown" as missing value.
+
+Since column *race* has only 2% of missing value, we perform imputation by **mode**.
+```{r echo=TRUE}
+mode_race <- names(which.max(table(df$race))) #Impute with mode
+mode_race
+```
+"Caucasion" is the mode and those missing value will be assign as it.
+```{r echo=TRUE}
+df$race[is.na(df$race)] <- mode_race
+unique(df$race)
+```
+For *gender* column, there are currently three categories which are "Female", "Male", and "Unknown/Invalid". We consider "Unknown/Invalid" as missing value, thus it will be filtered.
+
+```{r echo=TRUE}
+unique(df$gender)
+```
+```{r echo=TRUE}
+df <- df %>% filter(!(gender == "Unknown/Invalid"))
+nrow(df)
+```
+
+*diag_1, diag_2, and diag_3* contains the code for primary, secondary and tertiary diagnosis. Since not all patients are diagnosed will those three at once, we will just change the null value to "Not Available".
+
+```{r echo=TRUE}
+df <- df %>%
+  mutate(across(c(diag_1, diag_2, diag_3), ~ ifelse(is.na(.), "Not available", .)))
+```
+
+After handling missing value, there are currently **101763 observations** with -3 difference as compared to original observation.
+
+### Add aggregated column
+
+Column *diag_1, diag_2, and diag_3* contains the diagnosis code. Each patient might only have one or two diagnosis, per admission. Thus, calculating the number of diagnosis will be helpful for further analysis.
+
+```{r echo=TRUE}
+df <- df %>% mutate(diag_count = rowSums(!is.na(select(.,diag_1,diag_2,diag_3))))
+dim(df)
+```
+Our variables are back to 50 after adding a new column. 
+
+### Change data type
+
+For a useful analysis, we will change `chr` type to `factor` type. Factor will make it more efficient for categorical grouping that will be used during classification modelling.
+
+```{r echo=TRUE}
+df <- df %>% mutate(across(where(is.character), as.factor))%>% mutate(across(where(is.numeric), as.integer))
+str(df)
+```
+Each category will be considered as one level of factors and non-decimal columns (id columns) will be considered as `int` type rather than `num`.
+
+
+### Relabelling interval bins
+
+Column *age* show intervals that presented in left-closed and right-open bins. To improve readability, we will change the label by excluding the brackets with correct bins.
+
+```{r echo=TRUE}
+new_age_label <- paste0(seq(0, 90, by = 10),"-", seq(9, 99, by = 10))
+levels(df$age) <- new_age_label
+unique(df$age)
+```
+The factor for *age* are now re-code into **10 bins**, from **0-99**.
+
+```{r echo=TRUE}
+str(df$age)
+```
+
+### Save cleaned data
+
+Storing data in `.rds` format will preserve the full structure and can avoid formatting issues. Thus, cleaned data will be saved as **diabetic_cleaned.rds** for future use.
+```{r echo=TRUE}
+saveRDS(df,"diabetic_cleaned.rds")
+```

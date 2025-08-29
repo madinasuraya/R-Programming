@@ -1,0 +1,105 @@
+## Exploratory Data Analysis (EDA)
+
+Exploratory Data Analysis (EDA) is performed to explore patterns, detect anomalies, test hypotheses, and check assumptions with the help of summary statistics and graphical representations. The following visualizations and summaries aim to understand the characteristics of the diabetic patients and how various factors might influence hospital readmission.
+
+### Summary statistics
+This gives a quick overview of the dataset, including minimum, maximum, mean, and quartiles for numerical variables, and frequency counts for categorical variables. This helps detect any skewness, unusual ranges, or imbalanced categories.
+```{r echo=TRUE}
+# Load necessary libraries for data manipulation and visualization
+library(dplyr)     # For data manipulation
+library(ggplot2)   # For plotting charts
+
+# Display basic statistics (min, max, mean, etc.) for each column
+summary(df)
+```
+
+
+### Age Group Distribution
+This bar plot shows how patients are distributed across different age intervals. It helps to identify which age groups have higher hospital admission rates among diabetic patients.
+```{r echo=TRUE}
+# 1 Show how many patients are in each age group
+ggplot(df, aes(age)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Age Groups", x = "Age Group", y = "Count")
+```
+
+
+### Relationship: Age vs Time in Hospital
+
+This boxplot shows how the time spent in the hospital varies across different age groups.
+'age' is a categorical variable (in 10-year bins), and 'time_in_hospital' is numerical.
+The boxplot helps us observe the median stay and spread within each age group.
+```{r echo=TRUE}
+ggplot(df, aes(x = age, y = time_in_hospital)) +
+  geom_boxplot(fill = "orchid") +  # Creates a boxplot with purple fill
+  labs(
+    title = "Age vs Time in Hospital",   # Title of the chart
+    x = "Age",                           # Label for x-axis
+    y = "Hospital Stay (days)"          # Label for y-axis
+  )
+
+```
+
+###  Correlation: Number of Diagnoses vs Time in Hospital
+
+This scatter plot examines the relationship between the number of diagnoses (diag_count) and the duration of hospital stay. Each dot represents a patient's data.
+The red line is a linear regression trend line that helps assess whether more diagnoses are associated with longer hospital stays.
+```{r echo=TRUE}
+ggplot(df, aes(x = number_diagnoses, y = time_in_hospital)) +
+  geom_point(alpha = 0.3) +                     # Scatter plot with transparent points for better visibility
+  geom_smooth(method = "lm", se = FALSE, color = "red") +  # Adds a linear trend line (no confidence interval)
+  labs(
+    title = "Diagnosis Count vs Time in Hospital",  # Chart title
+     x = "Diagnosis Count",                          # x-axis label
+     y = "Time in Hospital"                          # y-axis label
+   )
+```
+
+
+### Race Distribution
+This visualization shows the number of patients by race. It highlights racial demographics in the dataset and helps identify if certain groups are over- or under-represented.
+```{r echo=TRUE}
+# Show how the dataset is distributed across different races
+# Convert race counts to a table
+race_count <- as.data.frame(table(df$race))
+
+# Pie chart
+ggplot(race_count, aes(x = "", y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +  # Makes it circular
+  labs(title = "Race Distribution") +
+  theme_void()
+```
+
+
+### Readmission Status
+This chart breaks down the number of patients by their readmission status, such as "<30", ">30", and "NO". It provides insights into how common readmission is and whether most patients return soon or much later.
+```{r echo=TRUE}
+# Show how many patients fall into each readmission class
+readmit_count <- as.data.frame(table(df$readmitted))
+
+ggplot(readmit_count, aes(x = "", y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  labs(title = "Readmission Proportion") +
+  theme_void()
+```
+
+
+### Gender vs Readmission
+This grouped bar chart shows the relationship between gender and readmission. It helps examine whether male or female patients tend to be readmitted more frequently.
+```{r echo=TRUE}
+# Check the readmission rate based on gender
+ggplot(df, aes(gender, fill = readmitted)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Gender vs Readmission", x = "Gender", y = "Count")
+```
+
+### Admission Types
+This graph illustrates how patients are admitted, based on admission type codes (e.g., emergency, urgent, elective). Understanding admission types can help in identifying the severity or urgency of patient cases.
+```{r echo=TRUE}
+# Visualize types of hospital admissions in the dataset
+ggplot(df, aes(admission_type_id)) +
+  geom_bar(fill = "coral") +
+  labs(title = "Admission Types", x = "Admission Type ID", y = "Count")
+```

@@ -1,0 +1,319 @@
+## Classification: Predict Readmission Class 
+
+ In this new process, we are going to find top features first, and then do the classification on the top features only (removing the low features) But first, we are removing the features with lower than 2 factors level.
+
+```{r train/test}
+# Load necessary libraries
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(e1071)
+library(xgboost)
+library(ROCR)
+
+# Load cleaned dataset
+df <- readRDS("diabetic_recleaned.rds")
+
+# Convert target variable to factor
+df$readmitted <- as.factor(df$readmitted)
+
+# Check class distribution
+table(df$readmitted)
+
+# Split into training and testing sets
+set.seed(123)
+train_index <- createDataPartition(df$readmitted, p = 0.8, list = FALSE)
+train_data <- df[train_index, ]
+test_data <- df[-train_index, ]
+```
+
+### Identify and remove low level factors
+```{r }
+# 01: Identify the problem columns
+sapply(train_data, function(col) {
+  is.factor(col) && length(unique(col)) < 2
+})
+
+names(which(sapply(train_data, function(col) is.factor(col) && length(unique(col)) < 2)))
+```
+
+```{r}
+# 02: Drop problematic columns
+bad_vars <- names(which(sapply(train_data, function(col) is.factor(col) && length(unique(col)) < 2)))
+train_data_clean <- train_data[ , !(names(train_data) %in% bad_vars)]
+```
+
+```{r}
+test_data_clean <- test_data[ , !(names(test_data) %in% bad_vars)]
+```
+
+```{r}
+# double-check
+bad_vars
+names(train_data)
+```
+```{r}
+remove_constant_factors <- function(df) {
+  df[, !(sapply(df, function(col) is.factor(col) && length(unique(col)) < 2))]
+}
+
+train_data <- remove_constant_factors(train_data)
+test_data <- remove_constant_factors(test_data)
+```
+
+```{r}
+# double-check again
+bad_vars
+names(train_data)
+names(test_data)
+```
+```{r}
+# Drop Non-factor columns with a single unique value
+#Sometimes model.matrix() can also break if a non-factor column (e.g. numeric) has zero variance.
+
+constant_cols <- names(which(sapply(train_data, function(col) length(unique(col)) < 2)))
+train_data <- train_data[, !(names(train_data) %in% constant_cols)]
+test_data <- test_data[, !(names(test_data) %in% constant_cols)]
+```
+
+### Top features
+```{r}
+# 01. Create matrix for XGBoost
+train_matrix <- model.matrix(readmitted ~ . -1, data = train_data)
+train_label <- as.numeric(train_data$readmitted) - 1
+
+# 02. Train the XGBoost model
+library(xgboost)
+
+xgb_model <- xgboost(
+  data = train_matrix,
+  label = train_label,
+  nrounds = 50,
+  objective = "multi:softprob",
+  num_class = length(unique(train_label)),
+  eval_metric = "mlogloss",
+  verbose = 0
+)
+
+# 03. Get top features
+importance <- xgb.importance(model = xgb_model)
+print(head(importance, 15))
+
+# 04. Plot the features
+xgb.plot.importance(importance_matrix = importance[1:15, ])
+```
+
+### Classification Model
+```{r}
+# 01. Load libraries and data
+library(ranger)
+library(dplyr)
+
+# 02. Select only top features (exclude patient_nbr & encounter_id)
+selected_vars <- c(
+  "readmitted",
+  "number_inpatient",
+  "discharge_disposition_id",
+  "num_medications",
+  "number_diagnoses",
+  "number_emergency",
+  "num_lab_procedures",
+  "time_in_hospital",
+  "number_outpatient",
+  "num_procedures",
+  "diabetesMed",
+  "payer_code",
+  "admission_source_id",
+  "diag_1"
+)
+
+df_selected <- df[, selected_vars]
+
+# 03. Remove columns with only one unique value
+df_selected <- df_selected %>%
+  select(where(~ length(unique(.)) > 1))
+
+# 04. Train/test split
+set.seed(123)
+train_index <- createDataPartition(df_selected$readmitted, p = 0.8, list = FALSE)
+train_data <- df_selected[train_index, ]
+test_data  <- df_selected[-train_index, ]
+```
+
+### Option A: Random Forest (ranger)
+```{r}
+# 05A. Train with ranger
+rf_model <- ranger(readmitted ~ ., data = train_data, importance = "impurity")
+
+# 06A. Predict and evaluate
+pred_rf <- predict(rf_model, test_data)$predictions
+rf_conf <- confusionMatrix(pred_rf, test_data$readmitted)
+rf_stats <- rf_conf$overall[c("Accuracy", "Kappa")]
+```
+
+```{r}
+# Print RandomForest Confusion matrix
+rf_conf
+```
+
+### Option B: XGBoost (with numeric matrix input)
+```{r}
+# 05B. Prepare XGBoost input
+# Must convert factors to dummy vars
+train_matrix <- model.matrix(readmitted ~ . -1, data = train_data)
+train_label <- as.numeric(train_data$readmitted) - 1
+
+test_matrix <- model.matrix(readmitted ~ . -1, data = test_data)
+test_label <- as.numeric(test_data$readmitted) - 1
+
+# 6B. Train XGBoost model
+xgb_model <- xgboost(
+  data = train_matrix,
+  label = train_label,
+  nrounds = 50,
+  objective = "multi:softmax",
+  num_class = length(unique(train_label)),
+  eval_metric = "mlogloss",
+  verbose = 0
+)
+
+# 7B. Predict and evaluate
+pred_xgb <- predict(xgb_model, test_matrix)
+pred_xgb <- factor(pred_xgb, labels = levels(train_data$readmitted))
+
+xgb_conf <- confusionMatrix(pred_xgb, test_data$readmitted)
+xgb_stats <- xgb_conf$overall[c("Accuracy", "Kappa")]
+```
+
+```{r}
+# Print XGBoost Confusion matrix
+xgb_conf
+```
+
+```{r}
+# 08. Combine Metrics for Comparison
+
+compare_df <- data.frame(
+  Metric = names(rf_stats),
+  RandomForest = round(as.numeric(rf_stats), 4),
+  XGBoost = round(as.numeric(xgb_stats), 4)
+)
+
+# Print comparison
+print(compare_df)
+
+# Optional: Show class-wise stats
+print(rf_conf$byClass)
+print(xgb_conf$byClass)
+```
+
+### Results & Interpretation
+(1) OVERALL COMPARISON
+
+Both models are only moderately better than chance. Accuracy and Kappa are very similar, suggesting minimal difference in performance.
+
+(2) CLASS-WISE PERFORMANCE
+
+🔹 Class <30 (most underrepresented)
+❌ Both models perform poorly on detecting <30 readmission (sensitivity = 4.4%)
+
+🔹 Class >30
+⚖️ Slightly better sensitivity with XGBoost, but difference is marginal.
+
+🔹 Class NO (majority class)
+✅ Both models favor this class. Slightly better balance with XGBoost.
+
+(3) Interpretation
+
+Both models are heavily biased toward the majority class (NO).
+Extremely poor sensitivity for <30, which is the critical class for early readmission — this should be improved.
+Accuracy isn’t a strong metric here; consider using macro/micro averaged F1 scores or AUC per class.
+No major difference between models — you can prioritize the faster one (usually XGBoost).
+
+### Using other metric for both models
+```{r}
+# 01. Step 1: Prepare Libraries
+
+# List of required packages
+required_packages <- c("MLmetrics", "yardstick", "dplyr", "pROC")
+
+# Install any that aren't already installed
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+}
+
+library(MLmetrics)
+library(yardstick)
+library(dplyr)
+library(pROC)
+```
+
+```{r}
+# 02. Create Prediction Results Data Frame
+
+# Use this — works fine if rf_model is trained with caret::train()
+# Assume these are your actual and predicted labels
+actual <- test_data$readmitted
+pred_rf <- predict(rf_model, data = test_data)$predictions
+rf_probs <- predict(rf_model, data = test_data, type = "response")$predictions
+
+# Recreate the test matrix (same variables as during training!)
+test_matrix <- model.matrix(readmitted ~ . -1, data = test_data)
+
+# Predict class
+pred_xgb <- predict(xgb_model, newdata = test_matrix)
+
+# If model used "multi:softmax", output is class index (e.g., 0, 1, 2)
+# So you may need to map back to class labels:
+levels(actual)  # Check the actual class order
+pred_xgb <- factor(pred_xgb, levels = 0:2, labels = levels(actual))
+```
+```{r}
+# 03. Compute F1 Scores
+# Create results data frames
+rf_results <- data.frame(truth = actual, prediction = pred_rf)
+xgb_results <- data.frame(truth = actual, prediction = pred_xgb)
+
+# Convert columns to factors (yardstick requires factors)
+rf_results$truth <- as.factor(rf_results$truth)
+rf_results$prediction <- as.factor(rf_results$prediction)
+
+xgb_results$truth <- as.factor(xgb_results$truth)
+xgb_results$prediction <- as.factor(xgb_results$prediction)
+
+# Compute F1 macro and micro for Random Forest
+rf_fma <- f_meas(rf_results, truth = truth, estimate = prediction, average = "macro")
+rf_fmi <- f_meas(rf_results, truth = truth, estimate = prediction, average = "micro")
+
+# Compute F1 macro and micro for XGBoost
+xg_fma <- f_meas(xgb_results, truth = truth, estimate = prediction, average = "macro")
+xg_fmi <- f_meas(xgb_results, truth = truth, estimate = prediction, average = "micro")
+
+# Combine into a data frame
+f1_summary <- data.frame(
+  Model = c("Random Forest", "Random Forest", "XGBoost", "XGBoost"),
+  Metric = c("F1 Macro", "F1 Micro", "F1 Macro", "F1 Micro"),
+  Estimate = c(rf_fma$.estimate, rf_fmi$.estimate, xg_fma$.estimate, xg_fmi$.estimate)
+)
+
+# Save to CSV
+write.csv(f1_summary, "f1_score.csv", row.names = FALSE)
+```
+
+```{r}
+f1_summary
+```
+### F1 Score Interpretation
+✅ F1 Macro (treats all classes equally):
+*On average, both models perform similarly across all classes. This metric treats each class equally, even if one class (e.g., "NO") dominates. A score below 0.5 suggests poor ability to balance precision and recall, especially for minority classes (<30, >30).
+
+✅ F1 Micro (accounts for class imbalance):
+*Interpretation: These values show how well the models perform across all instances, weighted by class frequency. Micro F1 is generally close to accuracy in multi-class problems. Both models are underperforming overall — correctly predicting fewer than half of the cases.
+
+🔍 Final Analysis:
+*Both models perform nearly the same in terms of F1 scores.
+*F1 < 0.4 implies room for improvement, possibly due to:
+ -Class imbalance (e.g., "NO" dominating)
+ -Limited predictive power in selected features

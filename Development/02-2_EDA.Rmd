@@ -1,0 +1,178 @@
+### Correlation Matrix
+
+#### Load the Dataset
+```{r}
+data <- readRDS("diabetic_cleaned.rds")
+summary(data)
+```
+
+#### Variable Selection
+In correlation analysis, only numeric variables are applicable. Therefore, the steps below outline the selection of numerical variables. 
+```{r}
+# Select only numeric columns
+numeric_data <- data[sapply(data, is.numeric)]
+
+# Check selected columns
+str(numeric_data)
+```
+
+#### Normality Assumption
+The normality assumption needs to be assessed to determine the appropriate type of correlation analysis—-whether to use Pearson or Spearman. If the data are normally distributed, Pearson will be used; otherwise, Spearman correlation will be applied.
+```{r}
+# Set up plotting layout
+par(mfrow = c(2, 2))  # 2x2 grid for each variable
+
+# Loop through columns
+for (col in names(numeric_data)) {
+  # Skip if no variance or too many NAs
+  if (sd(numeric_data[[col]], na.rm = TRUE) == 0 || sum(is.na(numeric_data[[col]])) > 0.5 * nrow(numeric_data)) next
+  
+  # Histogram with density curve
+  hist(numeric_data[[col]], 
+       breaks = 30, 
+       prob = TRUE, 
+       main = paste("Histogram of", col),
+       xlab = col)
+  lines(density(numeric_data[[col]], na.rm = TRUE), col = "red", lwd = 2)
+  
+  # Q-Q plot
+  qqnorm(numeric_data[[col]], main = paste("Q-Q Plot of", col))
+  qqline(numeric_data[[col]], col = "red")
+}
+
+# Reset plotting layout
+par(mfrow = c(1, 1))
+```
+
+***CONCLUSION:***
+The histogram shows that most of the independent variables are not normally distributed. Therefore, Spearman correlation analysis will be used to assess the relationships. 
+
+#### Correlation Matrix
+Next, the correlation matrix will be calculated. If any variable has a standard deviation of zero (0), it will be removed from the list of numerical variables, and the matrix will be recalculated.
+```{r}
+# Calculate the correlation matrix [Output: warning]
+cor_matrix <- cor(numeric_data, use = "complete.obs", method = "spearman")
+
+# Find columns with zero standard deviation
+zero_sd_col <- names(numeric_data)[sapply(numeric_data, function(x) sd(x, na.rm = TRUE) == 0)]
+print(zero_sd_col)
+
+# Remove columns with zero standard deviation
+numeric_data_filtered <- numeric_data[, sapply(numeric_data, function(x) sd(x, na.rm = TRUE) != 0)]
+
+# Recompute correlation matrix
+cor_matrix <- cor(numeric_data_filtered, use = "complete.obs", method = "spearman")
+print(round(cor_matrix, digits = 4))
+```
+
+#### Plotting the Correlation Matrix
+To facilitate interpretation, a heatmap of the correlation matrix is presented below.
+```{r}
+# Load required packages
+library(corrplot)
+
+# Plot the correlation matrix
+corrplot(cor_matrix, method = "color", addCoef.col = "black", number.cex = 0.7, tl.cex = 0.8)
+```
+
+***CONCLUSION:***
+This correlation matrix shows relationships between healthcare-related variables, with values ranging from -0.70 (strong negative) to 1.00 (perfect positive). Most correlations are weak, but a few stand out as moderately strong.
+
+**Strongest Negative Correlation**
+
+**i)** The **strongest relationship** is between *admission_type_id* and *admission_source_id* (**-0.70**), indicating these variables move in opposite directions.  
+📌 For example, emergency admissions might come from different sources than planned admissions.
+
+**Hospital Stay Duration Relationships**
+
+**i)** *time_in_hospital* **moderately correlates** with:  
+&nbsp;&nbsp;&nbsp;&nbsp;a. *num_medications* (**0.47**) — patients staying longer tend to receive more medications.  
+&nbsp;&nbsp;&nbsp;&nbsp;b. *num_lab_procedures* (**0.34**) — longer stays involve more lab tests.  
+
+📌 Longer hospitalization is associated with increased medication and testing.
+
+**Treatment Intensity Interconnections**
+
+**i)** *num_procedures* and *num_medications* (**0.35**) — patients undergoing more procedures also receive more medications.  
+
+**ii)** *number_diagnoses* and *num_medications* (**0.29**) — patients with more diagnoses tend to receive more medications.  
+
+📌 These moderate correlations suggest that treatment intensity variables reinforce each other.
+
+**Artificial Correlation Between Identifiers**
+
+**i)** *encounter_id* and *patient_nbr* show a correlation of **0.54**, but this is artificial.  
+📌 These are identifiers and not clinical features — their correlation reflects ID generation patterns, not medical trends.
+
+
+#### Regrouping Data
+The initial correlation analysis across all observations showed limited correlation between variables. However, medical data often contains patient-specific patterns that can be obscured in population-level analyses. By regrouping the data by patient number and analyzing correlations within patients, we account for between-patient variability and are better able to detect meaningful within-patient relationships between variables.
+```{r}
+# Load required packages
+library(dplyr)
+
+data_sum <- data %>%
+  group_by(patient_nbr) %>%
+  summarise(
+    encounter_count = n_distinct(encounter_id),
+    total_lab_procedures = sum(num_lab_procedures, na.rm = TRUE),
+    total_procedures = sum(num_procedures, na.rm = TRUE),
+    total_medications = sum(num_medications, na.rm = TRUE),
+    total_outpatient = sum(number_outpatient, na.rm = TRUE),
+    total_emergency = sum(number_emergency, na.rm = TRUE),
+    total_inpatient = sum(number_inpatient, na.rm = TRUE),
+    total_time_in_hospital = sum(time_in_hospital, na.rm = TRUE),
+    total_num_of_diagnoses = sum(number_diagnoses, na.rm = TRUE)
+  )
+
+print(data_sum, width = Inf)
+```
+
+#### Plotting New Correlation Matrix
+```{r}
+# Calculate the correlation matrix
+cor_matrix <- cor(data_sum, use = "complete.obs", method = "pearson")
+cor_matrix
+
+# Plot the correlation matrix with new variables
+corrplot(cor_matrix, method = "color", addCoef.col = "black", number.cex = 0.7)
+```
+
+***CONCLUSION:***
+
+**Strongest Correlations**
+
+**i)** *encounter_count* has very strong positive correlations with:  
+&nbsp;&nbsp;&nbsp;&nbsp;a. *total_num_of_diagnoses* (0.954)  
+&nbsp;&nbsp;&nbsp;&nbsp;b. *total_medications* (0.859)  
+&nbsp;&nbsp;&nbsp;&nbsp;c. *total_lab_procedures* (0.869)  
+&nbsp;&nbsp;&nbsp;&nbsp;d. *total_time_in_hospital* (0.795)  
+
+📌 Patients with more medical encounters tend to undergo more diagnostic tests, receive more medications, and have longer hospital stays.
+
+**ii)** *total_num_of_diagnoses* is also strongly correlated with:  
+&nbsp;&nbsp;&nbsp;&nbsp;a. *total_medications* (0.866)  
+&nbsp;&nbsp;&nbsp;&nbsp;b. *total_lab_procedures* (0.850)  
+&nbsp;&nbsp;&nbsp;&nbsp;c. *total_time_in_hospital* (0.793)  
+
+📌 These strong positive correlations indicate that as the number of diagnoses increases, so do the medical interventions and hospital resources used, which aligns with clinical expectations.
+
+**Moderate Correlations**
+
+**i)** *total_time_in_hospital* is moderately correlated with:  
+&nbsp;&nbsp;&nbsp;&nbsp;a. *total_medications* (0.812)  
+&nbsp;&nbsp;&nbsp;&nbsp;b. *total_inpatient* (0.630)  
+
+📌 Longer hospital stays involve more medical interventions.
+
+**ii)** *total_inpatient* is moderately correlated with:  
+&nbsp;&nbsp;&nbsp;&nbsp;a. *total_medications* (0.676)  
+&nbsp;&nbsp;&nbsp;&nbsp;b. *total_num_of_diagnoses* (0.734)  
+
+📌 Inpatient care is associated with higher treatment complexity.
+
+**Weak or Negligible Correlations**
+
+**i)** *patient_nbr* (likely a patient identifier) shows almost no correlation with other variables, as expected (all values close to 0).
+
+**ii)** *total_outpatient* and *total_emergency* show weaker correlations with other variables (mostly < 0.4).

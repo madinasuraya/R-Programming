@@ -1,0 +1,457 @@
+## Regression: Modeling Hospital Stay Duration
+
+```{r libraries}
+
+# =========================
+# 01. Load Libraries
+# =========================
+
+```
+
+
+```{r preprocess}
+# ============================================
+# 02. Load and Preprocess Dataset
+# ============================================
+library(dplyr)
+
+df <- readRDS("diabetic_cleaned.rds")
+
+# Convert character columns to factors
+df <- mutate(df, across(where(is.character), as.factor))
+
+
+
+# Create Empty Lists
+
+id_like_vars <- c()
+high_missing_vars <- c()
+binary_vars <- c()
+numeric_vars <- c()
+categorical_vars <- c()
+
+# Track which variables have already been classified
+classified_vars <- c()
+
+
+# ID-like Variables
+id_like_vars <- names(df)[sapply(df, function(x) length(unique(x)) == nrow(df))]
+classified_vars <- union(classified_vars, id_like_vars)
+
+
+# High Missing Value Variables
+missing_pct <- sapply(df, function(x) mean(is.na(x)))
+high_missing_vars <- names(missing_pct[missing_pct > 0.3])
+high_missing_vars <- setdiff(high_missing_vars, classified_vars)
+classified_vars <- union(classified_vars, high_missing_vars)
+
+
+# Binary Variables (2 unique values only)
+binary_vars <- names(df)[sapply(df, function(x) length(unique(x)) == 2)]
+binary_vars <- setdiff(binary_vars, classified_vars)
+classified_vars <- union(classified_vars, binary_vars)
+
+
+# Numeric Variables
+numeric_vars <- names(df)[sapply(df, function(x) is.numeric(x) | is.integer(x))]
+numeric_vars <- setdiff(numeric_vars, classified_vars)
+classified_vars <- union(classified_vars, numeric_vars)
+
+
+# Categorical Variables (Factor with > 2 levels)
+categorical_vars <- names(df)[sapply(df, is.factor)]
+categorical_vars <- setdiff(categorical_vars, classified_vars)
+classified_vars <- union(classified_vars, categorical_vars)
+```
+
+
+```{r features}
+# ============================================
+# 03. Feature Preparation
+# ============================================
+
+# Define modeling target
+target_var <- "time_in_hospital"
+
+# Exclude variables
+exclude_vars <- c(id_like_vars, high_missing_vars,categorical_vars, target_var, "readmitted")
+all_vars <- setdiff(names(df), exclude_vars)
+all_vars <- unique(c(all_vars, "age"))
+
+# Subset to usable predictors + target
+model_df <- df[, c(target_var, all_vars)]
+
+# Drop rows with missing values (simple)
+model_df <- na.omit(model_df)
+
+# Convert character-type columns to factor if missed
+model_df <- model_df %>% mutate(across(where(is.character), as.factor))
+
+# Check structure
+dim(model_df)
+
+```
+
+### Train-Test Split
+
+The dataset was partitioned into training and testing subsets to ensure consistency across both subsets for valid model evaluation. 
+
+```{r traintest}
+# ============================================
+# 04. Train-Test Split
+# ============================================
+library(caret)
+
+set.seed(99)
+train_index <- createDataPartition(model_df[[target_var]], p = 0.7, list = FALSE)
+train_data <- model_df[train_index, ]
+test_data <- model_df[-train_index, ]
+
+# Ensure factor levels match between train and test
+for (col in names(train_data)) {
+  if (is.factor(train_data[[col]])) {
+    test_data[[col]] <- factor(test_data[[col]], levels = levels(train_data[[col]]))
+  }
+}
+
+```
+
+### Feature Importance
+
+Model was trained using the Ranger algorithm to evaluate feature importance for predicting hospital stay duration, revealing the top predictors based on impurity-based measures and are visualized as ranked bar chart above. 
+
+```{r feature}
+# ============================================
+# 05. Feature Importance- Ranger
+# ============================================
+
+library(ranger)
+library(dplyr)
+library(caret)
+library(tibble)
+
+# Define target variable
+target_var <- "time_in_hospital"
+
+# Remove rows with NA  
+train_data <- na.omit(train_data)
+
+# Ensure factors are typed consistently
+train_data <- train_data %>%
+  mutate(across(where(is.character), as.factor))
+
+# Train ranger model with importance
+set.seed(123)
+ranger_model <- ranger(
+  formula = as.formula(paste(target_var, "~ .")),
+  data = train_data,
+  importance = "impurity",   # options: "impurity", "permutation"
+  num.trees = 100
+)
+
+# Extract variable importance
+importance_df <- as.data.frame(ranger_model$variable.importance) %>%
+  rownames_to_column("Variable") %>%
+  setNames(c("Variable", "Importance")) %>%
+  arrange(desc(Importance))
+
+# View top 15 variables
+print(head(importance_df, 15))
+
+# Bar plot
+library(ggplot2)
+ggplot(importance_df[1:15, ], aes(x = reorder(Variable, Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 15 Important Variables from Ranger",
+       x = "Variable", y = "Importance") +
+  theme_minimal()
+
+```
+
+### Variables Selection
+
+The top 15 most important variables identified earlier were selected to construct a reduced training dataset, facilitating more focused and computationally efficient model development.
+
+```{r topvar}
+# ============================================
+# 06. Select Top N Variables
+# ============================================
+
+top_n <- 15
+top_vars <- importance_df$Variable[1:top_n]
+print(top_vars)
+
+# Subset train data to include only top variables + target
+train_top <- train_data[, c(target_var, top_vars)]
+
+# Optional: Convert all character to factors again if needed
+train_top <- train_top %>%
+  mutate(across(where(is.character), as.factor))
+
+```
+
+### Models
+
+#### Linear Regression Model
+
+The selected were subsequently used to train three predictive models, Multiple Linear Regression, Random Forest, and XGBoost. This approach aimed to evaluate and compare each model's ability to predict hospital stay duration by leveraging the most influential features while balancing interpretability, computational efficiency, and predictive accuracy.
+
+```{r lm}
+# ============================================
+# 07. Train Linear Model (lm)
+# ============================================
+
+lm_model <- lm(as.formula(paste(target_var, "~ .")), data = train_top)
+summary(lm_model)
+
+plot(lm_model)
+
+
+```
+
+#### Random Forest
+
+```{r rf}
+# ============================================
+# 08. Train Random Forest
+# ============================================
+
+library(randomForest)
+
+set.seed(123)
+rf_model <- randomForest(
+  formula = as.formula(paste(target_var, "~ .")),
+  data = train_top,
+  ntree = 30,
+  importance = TRUE
+)
+print(rf_model)
+varImpPlot(rf_model)
+
+
+
+```
+
+#### XGBoost
+
+```{r xgb}
+
+
+# ============================================
+# 09. Train XGBoost
+# ============================================
+library(xgboost)
+library(Matrix)
+
+# Convert to numeric matrix (XGBoost requires numeric input)
+# One-hot encode categorical variables
+dummies <- model.matrix(as.formula(paste(target_var, "~ .")), data = train_top)[, -1]
+labels <- train_top[[target_var]]
+
+# Create DMatrix
+dtrain <- xgb.DMatrix(data = dummies, label = labels)
+
+# Train XGBoost model
+set.seed(123)
+xgb_model <- xgboost(
+  data = dtrain,
+  nrounds = 100,
+  objective = "reg:squarederror",
+  verbose = 0
+)
+
+# Get and plot feature importance
+print(xgb_model)
+importance_matrix <- xgb.importance(model = xgb_model)
+xgb.plot.importance(importance_matrix, top_n = top_n, measure = "Gain")
+
+
+
+
+```
+
+### Performance
+
+The predictive performance of the models was assessed on the test set using RMSE and R-squared metrics, enabling a comparative analysis of each model’s accuracy and goodness-of-fit in estimating hospital stay duration based on the selected top predictors. 
+
+```{r evaluate}
+# =========================
+# 10. Evaluate Models
+# =========================
+
+# Required libraries
+library(caret)       # for R2()
+library(broom)       # for tidy model output
+library(ggplot2)     # for plotting
+
+# --- Custom Evaluation Functions ---
+rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2))
+}
+
+r_squared <- function(actual, predicted) {
+  cor(actual, predicted)^2
+}
+
+# --- Prepare Test Set with Top Variables ---
+test_top <- test_data[, c(target_var, top_vars)]
+
+# Ensure data types match
+test_top <- test_top %>%
+  mutate(across(where(is.character), as.factor))
+
+# True labels
+test_labels <- test_top[[target_var]]
+
+# ========================
+# --- LINEAR MODEL ---
+# ========================
+lm_preds <- predict(lm_model, newdata = test_top)
+lm_rmse <- rmse(test_labels, lm_preds)
+lm_r2 <- r_squared(test_labels, lm_preds)
+
+cat("\n====================\nLinear Model Evaluation\n====================\n")
+cat("  RMSE     :", round(lm_rmse, 4), "\n")
+cat("  R-squared:", round(lm_r2, 4), "\n")
+
+# ========================
+# --- RANDOM FOREST ---
+# ========================
+rf_preds <- predict(rf_model, newdata = test_top)
+rf_rmse <- rmse(test_labels, rf_preds)
+rf_r2 <- R2(rf_preds, test_labels)
+
+cat("\n====================\nRandom Forest Evaluation\n====================\n")
+cat("  RMSE     :", round(rf_rmse, 4), "\n")
+cat("  R-squared:", round(rf_r2, 4), "\n")
+
+# ========================
+# --- XGBOOST ---
+# ========================
+# One-hot encode test set (same structure as train)
+test_dummies <- model.matrix(as.formula(paste(target_var, "~ .")), data = test_top)[, -1]
+dtest <- xgb.DMatrix(data = test_dummies)
+
+xgb_preds <- predict(xgb_model, dtest)
+xgb_rmse <- rmse(test_labels, xgb_preds)
+xgb_r2 <- R2(xgb_preds, test_labels)
+
+cat("\n====================\nXGBoost Evaluation\n====================\n")
+cat("  RMSE     :", round(xgb_rmse, 4), "\n")
+cat("  R-squared:", round(xgb_r2, 4), "\n")
+
+# Combine results into a summary data frame
+results_df <- data.frame(
+  Model = c("Linear Regression", "Random Forest", "XGBoost"),
+  RMSE = c(lm_rmse, rf_rmse, xgb_rmse),
+  R_Squared = c(lm_r2, rf_r2, xgb_r2)
+)
+
+print(results_df)
+
+```
+XGBoost is the best-performing model among the three.
+It achieves the lowest prediction error (RMSE) and the highest explanatory power (R-squared).
+It is therefore the most suitable model for predicting hospital stay duration.
+
+
+### Tuning
+
+A grid search with cross-validation was conducted to optimize XGBoost hyperparameters,identifying the parameter combination that minimized test RMSE, thereby enhancing the model’s generalization performance while maintaining computational efficiency.
+
+```{r tuning}
+# ============================================
+# 11. Tuning with Cross-Validation
+# ============================================
+
+# Define a small, efficient tuning grid
+quick_grid <- expand.grid(
+  max_depth = c(3, 5),
+  eta = c(0.05, 0.1),
+  subsample = c(0.8),
+  colsample_bytree = c(0.8),
+  min_child_weight = c(1)
+)
+
+best_rmse <- Inf
+best_params <- list()
+best_nrounds <- 100
+
+for (i in 1:nrow(quick_grid)) {
+  params <- list(
+    booster = "gbtree",
+    objective = "reg:squarederror",
+    eval_metric = "rmse",
+    max_depth = quick_grid$max_depth[i],
+    eta = quick_grid$eta[i],
+    subsample = quick_grid$subsample[i],
+    colsample_bytree = quick_grid$colsample_bytree[i],
+    min_child_weight = quick_grid$min_child_weight[i]
+  )
+  
+  set.seed(123)
+  cv_model <- xgb.cv(
+    params = params,
+    data = dtrain,
+    nrounds = 300,
+    nfold = 3,                        # fewer folds for speed
+    early_stopping_rounds = 10,
+    verbose = 0
+  )
+  
+  mean_rmse <- min(cv_model$evaluation_log$test_rmse_mean)
+  
+  if (mean_rmse < best_rmse) {
+    best_rmse <- mean_rmse
+    best_params <- params
+    best_nrounds <- cv_model$best_iteration
+  }
+}
+
+cat("Best RMSE:", round(best_rmse, 4), "\n")
+print(best_params)
+
+```
+
+### Final Model
+
+Utilizing the optimal hyperparameters derived from cross-validation, the final XGBoost model demonstrated enhanced performance, confirming its improved ability to explain and predict hospital stay duration based on the selected features.
+
+```{r finalmodel}
+
+# ============================================
+# 12. Final Model with Best Parameters
+# ============================================
+set.seed(123)
+xgb_model_best <- xgboost(
+  data = dtrain,
+  nrounds = best_nrounds,
+  params = best_params,
+  verbose = 0
+)
+
+# Variable Importance
+importance_matrix_best <- xgb.importance(model = xgb_model_best)
+xgb.plot.importance(importance_matrix_best, top_n = top_n, measure = "Gain")
+
+# Evaluate
+preds <- predict(xgb_model_best, dtrain)
+rmse_final <- sqrt(mean((preds - labels)^2))
+r2_final <- 1 - sum((labels - preds)^2) / sum((labels - mean(labels))^2)
+
+cat("\nFinal Tuned XGBoost Performance]\n")
+cat("RMSE:", round(rmse_final, 4), "\n")
+cat("R² Score:", round(r2_final, 4), "\n")
+
+```
+RMSE (Root Mean Squared Error): 2.2054
+This indicates that, on average, the model's predictions deviate by approximately 2.2 days from the actual hospital stay durations. In practical terms, it reflects the typical prediction error, which is acceptable if hospital stays range over a broad scale. A lower RMSE suggests better accuracy and less variability in the prediction errors.
+
+R² Score (Coefficient of Determination): 0.4559
+This value means that approximately 45.6% of the variability in hospital stay duration can be explained by the model using the selected features. While not extremely high, it reflects moderate explanatory power, which is expected in healthcare datasets where many unobserved factors (e.g., clinical decisions, patient-specific nuances) also influence outcomes.
+
+
+### Overall Interpretation
+
+These values suggest that the tuned XGBoost model is reasonably effective at predicting hospital stay duration using the selected variables earlier. The model provides a useful approximation and could be valuable in hospital resource planning, early discharge prediction, or case prioritization, though there is still room for improvement through the inclusion of more detailed clinical data or unstructured variables.
